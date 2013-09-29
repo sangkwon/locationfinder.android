@@ -1,0 +1,42 @@
+<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    tools:context=".ProviderListActivity" >
+
+    <ImageButton
+        android:id="@+id/req_btn"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_alignParentRight="true"
+        android:layout_centerVertical="true"
+        android:src="@android:drawable/ic_menu_revert" />
+
+    <ProgressBar
+        android:id="@android:id/progress"
+        style="?android:attr/progressBarStyleSmall"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_alignParentRight="true"
+        android:layout_centerVertical="true"
+        android:visibility="gone" />
+
+    <TextView
+        android:id="@+id/name"
+        style="@android:style/TextAppearance.Medium"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_toLeftOf="@id/req_btn"
+        android:hint="name" />
+
+    <TextView
+        android:id="@+id/time"
+        style="@android:style/TextAppearance.Small"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_alignParentLeft="true"
+        android:layout_below="@+id/name"
+        android:layout_toLeftOf="@id/req_btn"
+        android:hint="time" />
+
+</RelativeLayout>
