@@ -1,6 +1,9 @@
 
 package com.egloos.realmove.android.locationfinder;
 
+import com.google.android.gms.common.ConnectionResult;
+import com.google.android.gms.common.GooglePlayServicesClient;
+import com.google.android.gms.location.LocationClient;
 import com.google.android.maps.GeoPoint;
 import com.google.android.maps.ItemizedOverlay;
 import com.google.android.maps.MapActivity;
@@ -16,11 +19,11 @@ import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
-import android.graphics.Point;
-import android.graphics.Rect;
 import android.graphics.Paint.FontMetrics;
+import android.graphics.Point;
 import android.graphics.drawable.Drawable;
 import android.location.Location;
+import android.location.LocationListener;
 import android.location.LocationManager;
 import android.os.Bundle;
 import android.view.LayoutInflater;
@@ -33,21 +36,32 @@ import android.widget.ListAdapter;
 import android.widget.ListView;
 import android.widget.ProgressBar;
 import android.widget.TextView;
+import android.widget.Toast;
 
+import java.text.DecimalFormat;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
 
-public class ProviderListActivity extends MapActivity {
+public class ProviderListActivity extends MapActivity implements
+		GooglePlayServicesClient.ConnectionCallbacks,
+		GooglePlayServicesClient.OnConnectionFailedListener {
 
 	private ListView mListView;
 	private MapView mMapView;
+	private LayoutInflater mInflater;
 
 	private Context mContext;
-	private List<ProviderInfo> mProviders;
-	private LayoutInflater mInflater;
-	private ListAdapter mAdapter;
+	private List<ProviderInfo> mProviders = new ArrayList<ProviderInfo>();;
+	private ArrayList<MyLocListener> mListeners = new ArrayList<MyLocListener>();
+	private BaseAdapter mAdapter;
+
+	private MyLocOverlay mMyLocOverlay;
+	private LocationClient mLocationClient;
+	private MyOverlay mLocationClientOverlay;
+	
+	private ProviderInfo mRequestedProvider;
 
 	@Override
 	protected void onCreate(Bundle savedInstanceState) {
@@ -68,61 +82,124 @@ public class ProviderListActivity extends MapActivity {
 		mListView.setAdapter(mAdapter);
 
 		listProvider();
+
+		mMyLocOverlay = new MyLocOverlay();
+		mMapView.getOverlays().add(mMyLocOverlay);
+
+		mLocationClient = new LocationClient(mContext, this, this);
+
+		drawOverlays();
 	}
 
 	@Override
 	protected void onDestroy() {
+		LocationManager locationManager = (LocationManager) mContext.getSystemService(Context.LOCATION_SERVICE);
+		if ( locationManager != null ) {
+			for (MyLocListener listener : mListeners) {
+				locationManager.removeUpdates(listener);
+			}
+		}
+
+		mListeners.clear();
+
 		mContext = null;
 		mMapView = null;
 		mListView = null;
+
 		super.onDestroy();
 	}
 
 	@Override
 	protected void onPause() {
 		super.onPause();
+		mMyLocOverlay.disableMyLocation();
 	}
 
 	@Override
 	protected void onResume() {
 		super.onResume();
-		
-		drawOverlays();
+
+		mMyLocOverlay.enableMyLocation();
 	}
 
-	private void listProvider() {
-		LocationManager locationManager = (LocationManager) mContext.getSystemService(Context.LOCATION_SERVICE);
-		List<String> providers = locationManager.getAllProviders();
+	long mRequested = 0;
 
-		if (providers != null) {
-			mProviders = new ArrayList<ProviderInfo>();
-			for (int i = 0; i < providers.size(); i++) {
-				ProviderInfo info = new ProviderInfo(providers.get(i));
+	@Override
+	protected void onStart() {
+		mRequested = System.currentTimeMillis();
+		mLocationClient.connect();
+		super.onStart();
+	}
 
-				Location location = locationManager.getLastKnownLocation(info.getName());
-				info.setLastKnownLocation(location);
-				mProviders.add(info);
+	@Override
+	protected void onStop() {
+		mLocationClient.disconnect();
+		super.onStop();
+	}
+
+	private void addLocationClientLocation(String flag) {
+		if (mLocationClient != null) {
+			ProviderInfo info = null;
+
+			for (ProviderInfo bean : mProviders) {
+				if (bean.getName().startsWith("LocClient")) {
+					info = bean;
+					break;
+				}
+			}
+
+			Location location = mLocationClient.getLastLocation();
+			if (location != null) {
+				if (info == null) {
+					info = new ProviderInfo("LocClient " + flag);
+					mProviders.add(info);
+
+					mLocationClientOverlay = new MyOverlay(info);
+					mMapView.getOverlays().add(mLocationClientOverlay);
+				}
+				info.setLocation(location);
 			}
 		}
 	}
 
-	private void drawOverlays() {
-		MyLocOverlay myLocOverlay = new MyLocOverlay();
-		myLocOverlay.enableMyLocation();
-		mMapView.getOverlays().add(myLocOverlay);
+	private void listProvider() {
+		addLocationClientLocation("L");
 
+		LocationManager locationManager = (LocationManager) mContext.getSystemService(Context.LOCATION_SERVICE);
+		List<String> providers = locationManager.getAllProviders();
+
+		if (providers != null) {
+			for (int i = 0; i < providers.size(); i++) {
+				ProviderInfo info = new ProviderInfo(providers.get(i));
+
+				MyLocListener listener = new MyLocListener(info);
+				mListeners.add(listener);
+				locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 0L, 0L, listener);
+
+				Location location = locationManager.getLastKnownLocation(info.getName());
+				info.setLocation(location);
+				mProviders.add(info);
+			}
+
+			mRequestedProvider = new ProviderInfo();
+			mRequestedProvider.setName("Req");
+			mProviders.add(mRequestedProvider);
+		}
+	}
+
+	private void drawOverlays() {
 		if (mProviders != null) {
 			boolean flag = false;
 			for (int i = 0; i < mProviders.size(); i++) {
 				ProviderInfo info = mProviders.get(i);
-				Location location = info.getLastKnownLocation();
+				Location location = info.getLocation();
 				if (location != null) {
-					GeoPoint geo = new GeoPoint((int) (location.getLatitude() * 1000000), (int) (location.getLongitude() * 1000000));
-					MyOverlay overlay = new MyOverlay(geo, info.getName());
+					MyOverlay overlay = new MyOverlay(info);
 					mMapView.getOverlays().add(overlay);
 
 					if (!flag) {
 						MapController controller = mMapView.getController();
+						GeoPoint geo = new GeoPoint((int) (location.getLatitude() * 1000000), (int) (location.getLongitude() * 1000000));
 						controller.animateTo(geo);
 						controller.setZoom(19);
 						flag = true;
@@ -179,9 +256,9 @@ public class ProviderListActivity extends MapActivity {
 			ProviderInfo provider = getItem(position);
 
 			holder.name.setText(provider.getName());
-			if (provider.getLastKnownLocation() != null) {
+			if (provider.getLocation() != null) {
 				SimpleDateFormat df = new SimpleDateFormat("MM-dd HH:mm");
-				holder.time.setText(df.format(new Date(provider.getLastKnownLocation().getTime())));
+				holder.time.setText(df.format(new Date(provider.getLocation().getTime())));
 			} else {
 				holder.time.setText("None");
 			}
@@ -225,16 +302,24 @@ public class ProviderListActivity extends MapActivity {
 
 	class MyOverlay extends Overlay {
 
-		private GeoPoint geoPoint;
-		private String name;
+		private ProviderInfo info;
 
-		public MyOverlay(GeoPoint geoPoint, String name) {
-			this.geoPoint = geoPoint;
-			this.name = name;
+		public MyOverlay(ProviderInfo info) {
+
+			this.info = info;
 		}
 
 		@Override
 		public void draw(Canvas canvas, MapView mapView, boolean shadow) {
+			String name = info.getName();
+			Location location = info.getLocation();
+
+			if (location == null) {
+				return;
+			}
+
+			GeoPoint geoPoint = new GeoPoint((int) (location.getLatitude() * 1000000), (int) (location.getLongitude() * 1000000));
+
 			super.draw(canvas, mapView, shadow);
 
 			Point pixPoint = new Point();
@@ -255,8 +340,8 @@ public class ProviderListActivity extends MapActivity {
 			int top = pixPoint.y - (bmp.getHeight() / 2);
 			int right = (int) (left + textWidth);
 			int bottom = top + textSize;
-			paint.setColor(Color.WHITE);
-			canvas.drawRect(left - 3, top - 3, right + 3, bottom + 3, paint);
+//			paint.setColor(Color.WHITE);
+//			canvas.drawRect(left - 3, top - 3, right + 3, bottom + 3, paint);
 
 			paint.setAntiAlias(true);
 			paint.setColor(Color.RED);
@@ -272,13 +357,14 @@ public class ProviderListActivity extends MapActivity {
 			super(mContext, mMapView);
 			geoPoint = getMyLocation();
 		}
-		
+
 		@Override
 		public void draw(Canvas canvas, MapView mapView, boolean shadow) {
 			super.draw(canvas, mapView, shadow);
 
-			if ( geoPoint == null ) return;
-			
+			if (geoPoint == null)
+				return;
+
 			Point pixPoint = new Point();
 
 			mapView.getProjection().toPixels(geoPoint, pixPoint); // 지리좌표를 화면상의 픽셀좌표로 변환
@@ -297,15 +383,76 @@ public class ProviderListActivity extends MapActivity {
 			int top = pixPoint.y - (bmp.getHeight() / 2);
 			int right = (int) (left + textWidth);
 			int bottom = top + textSize;
-			paint.setColor(Color.WHITE);
-			canvas.drawRect(left - 3, top - 3, right + 3, bottom + 3, paint);
+			// paint.setColor(Color.WHITE);
+			// canvas.drawRect(left - 3, top - 3, right + 3, bottom + 3, paint);
 
 			paint.setAntiAlias(true);
 			paint.setColor(Color.RED);
 			canvas.drawText(text, left, bottom - fm.descent, paint);
 		}
-		
+
 	}
 
-	
+	@Override
+	public void onConnectionFailed(ConnectionResult connectionResult) {
+		Toast.makeText(this, "onConnectionFailed() " + connectionResult.hasResolution(), Toast.LENGTH_SHORT).show();
+	}
+
+	@Override
+	public void onConnected(Bundle bundle) {
+		Toast.makeText(this, "onConnected() " + new DecimalFormat().format(System.currentTimeMillis() - mRequested) + " ms", Toast.LENGTH_SHORT)
+				.show();
+		System.err.println("onConnected()");
+		addLocationClientLocation(" onConn");
+		mAdapter.notifyDataSetChanged();
+		mMapView.invalidate();
+	}
+
+	@Override
+	public void onDisconnected() {
+		System.err.println("onDisconnected()");
+		Toast.makeText(this, "onDisconnected()", Toast.LENGTH_SHORT).show();
+	}
+
+	class MyLocListener implements LocationListener {
+
+		ProviderInfo mInfo;
+
+		public MyLocListener(ProviderInfo info) {
+			mInfo = info;
+		}
+
+		@Override
+		public void onLocationChanged(Location location) {
+			System.err.println("onLocationChanged() " + mInfo.getName());
+			Toast.makeText(mContext, "onLocationChanged() ", Toast.LENGTH_SHORT).show();
+
+			if (mRequestedProvider != null) {
+				mRequestedProvider.setLocation(location);
+				mAdapter.notifyDataSetChanged();
+				
+				mMapView.invalidate();
+			}
+		}
+
+		@Override
+		public void onProviderDisabled(String provider) {
+			// TODO Auto-generated method stub
+
+		}
+
+		@Override
+		public void onProviderEnabled(String provider) {
+			System.err.println("onProviderEnabled() " + mInfo.getName());
+
+		}
+
+		@Override
+		public void onStatusChanged(String provider, int status, Bundle extras) {
+			// TODO Auto-generated method stub
+
+		}
+
+	}
+
 }

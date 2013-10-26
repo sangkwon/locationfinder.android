@@ -6,7 +6,7 @@ import android.location.Location;
 public class ProviderInfo {
 
 	private String name;
-	private Location lastKnownLocation;
+	private Location location;
 
 	public ProviderInfo() {
 		this(null);
@@ -24,12 +24,12 @@ public class ProviderInfo {
 		this.name = name;
 	}
 
-	public Location getLastKnownLocation() {
-		return lastKnownLocation;
+	public Location getLocation() {
+		return location;
 	}
 
-	public void setLastKnownLocation(Location lastKnownLocation) {
-		this.lastKnownLocation = lastKnownLocation;
+	public void setLocation(Location location) {
+		this.location = location;
 	}
 
 	@Override
